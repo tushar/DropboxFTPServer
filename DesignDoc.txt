@@ -14,7 +14,7 @@ FTP authenticates via username and password. The Dropbox api uses OAuth for auth
 Network IO structure and processing:
 
 Given the requirements, a completely non-blocking structure would seem to be ideal. Scaling to a large number of connections is possible using async io, but would be hard using the traditional thread per connection model. 
-The really interesting requirement is the second one, where we would prefer all users (used interchangeably with connections from here on), to make forward progress, even if that means a reduction in throughput. The requirement does not clarify whether we are talking about server throughput or client observed throughput (per connection throughput from the client's viewpoint). I will assume that we mean the latter. Since server throughput at scale would lead to the server getting browned out ultimately. 
+The really interesting requirement is the second one, where we would prefer all users (used interchangeably with connections from here on), to make forward progress, even if that means a reduction in throughput. The requirement does not clarify whether we are talking about server throughput or client observed throughput (per connection throughput from the client's viewpoint). I will assume that we mean the latter. Since degrading server throughput at scale would lead to the server getting browned out ultimately. 
 
 We essentially have the following choices for deciding how to structure our network IO:
 
@@ -64,7 +64,7 @@ The selector will select the dropbox socket once it is ready for writes. At that
 
 This is the general idea and RETR would work correspondingly. This way, when we have a lot of data connections, we work on all of them concurrently. 
 
-Keeping thread safety is important here. In the above interaction I described, it is possible for 2 worker threads to end up working on the same pair of ftp and dropbox sockets. For example, imagine that the ftp socket becomes readable, however the dropbox socket is not writable at this point. Now, worker thread 1, starts working. It looks up the associated dropbox socket, but right before it checks whether it is writable, it gets context switched out. 
+Maintaining thread safety is important here. In the above interaction I described, it is possible for 2 worker threads to end up working on the same pair of ftp and dropbox sockets. For example, imagine that the ftp socket becomes readable, however the dropbox socket is not writable at this point. Now, worker thread 1, starts working. It looks up the associated dropbox socket, but right before it checks whether it is writable, it gets context switched out. 
 Now, the dropbox socket becomes writable, gets selected by the selector, and worker thread 2 picks it up. Now, both worker thread 1 and 2 could end up writing to this socket concurrently which could lead to bytes being written out of order and ultimately file corruption! 
 
 Fortunately, recognizing this problem is the hard part, but fixing it is straightforward. We need to introduce some sort of synchronization (mutually exclusive access) over the pair of ftp and dropbox sockets. The straightforward thing to do seems to be to maintain a lock for every pair and synchronize on that lock in the worker thread before doing any work. 
