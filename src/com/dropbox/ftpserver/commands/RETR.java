@@ -24,6 +24,26 @@ import org.slf4j.LoggerFactory;
 
 import com.dropbox.ftpserver.DropboxContext;
 
+/**
+ * Implementation of the FTP RETR command. This command is used to fetch a file from Dropbox. 
+ * The major purpose of this class is to modify RETR so that the execute method does not actually  
+ * transfer data from dropbox to the client. Instead, we want that happening in another thread. 
+ * This prevents us from blocking the thread that is calling execute. That thread can then go back
+ * to handling other FTP calls. 
+ * 
+ * The choice of threads vs completely non-blocking io is addressed in the design doc, so will not
+ * touch on that here. 
+ * 
+ * We use an executor to manage a thread pool responsible for streaming files from dropbox to the 
+ * ftp client. 
+ * 
+ * The execute method constructs a new runnable and submits it to this executor. 
+ * 
+ * We do not support seeking into a file. Thus, the whole is transferred each time.  
+ * 
+ * Note: Most of this code was copied from the RETR method in Apache Ftp Server. 
+ * 
+ */
 public class RETR extends AbstractCommand {
 
   private final Logger LOG = LoggerFactory.getLogger(RETR.class);
@@ -105,7 +125,7 @@ public class RETR extends AbstractCommand {
       try {
         dataConnection = session.getDataConnection().openConnection();
       } catch (Exception e) {
-        LOG.debug("Exception getting the output data stream", e);
+        LOG.error("Exception getting the output data stream", e);
         session.write(LocalizedFtpReply.translate(session, request, context,
             FtpReply.REPLY_425_CANT_OPEN_DATA_CONNECTION, "RETR", null));
         return;
@@ -145,9 +165,7 @@ public class RETR extends AbstractCommand {
     }
     
     public void run() {
-     
-      LOG.info("In RETRRunnable!");
-      
+           
       try {
         String fileName = request.getArgument();
         boolean failure = false;

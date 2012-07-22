@@ -6,7 +6,12 @@ import org.apache.ftpserver.ftplet.FtpFile;
 import com.dropbox.ftpserver.Utils;
 import com.dropbox.ftpserver.auth.DropboxUser;
 
-
+/**
+ * A very basic implementation of the FTP FileSystemView interface. 
+ * 
+ * The only method really implemented is getFile since that was all that was needed
+ * by this program. 
+ */
 public class DropboxFileSystemView implements FileSystemView {
 
   final DropboxUser user;

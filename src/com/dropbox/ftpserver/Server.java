@@ -1,4 +1,5 @@
 package com.dropbox.ftpserver;
+
 import java.io.IOException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -15,7 +16,13 @@ import com.dropbox.ftpserver.commands.RETR;
 import com.dropbox.ftpserver.commands.STOR;
 import com.dropbox.ftpserver.file.DropboxFileSystemFactory;
 
-
+/**
+ * Entry point for the server. 
+ * 
+ * This class has the main method. 
+ * After doing all the necessary initialization, this class starts the FTP Server. 
+ * 
+ */
 public class Server {
   protected FtpServer server;
   protected final DropboxContext dropboxContext;

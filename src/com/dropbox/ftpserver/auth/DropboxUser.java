@@ -8,11 +8,8 @@ import org.apache.ftpserver.ftplet.User;
 import com.dropbox.client2.session.AccessTokenPair;
 
 /**
- * 
- */
-
-/**
- *
+ * Implementation of the FTP User interface. This object represents an authenticated 
+ * Dropbox user, for whom we have an accessTokenPair. 
  */
 public class DropboxUser implements User {
 

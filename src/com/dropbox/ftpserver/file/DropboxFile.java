@@ -14,7 +14,13 @@ import com.dropbox.client2.session.WebAuthSession;
 import com.dropbox.ftpserver.Config;
 import com.dropbox.ftpserver.DropboxContext;
 
-
+/**
+ * Implements the FtpFile interface over a dropbox file. 
+ * 
+ * Supports reading and writing dropbox files. 
+ * 
+ * The createOutputStream method is the only one doing something interesting. Please read it's javadocs. 
+ */
 public class DropboxFile implements FtpFile {
 
   protected final String path;
@@ -37,13 +43,26 @@ public class DropboxFile implements FtpFile {
     }
   }
 
+  /**
+   * This method is called by the STOR command. 
+   * What makes this less than straightforward is that the dropbox api requires an input stream
+   * and is blocking. 
+   * 
+   * We do two things to get around this. 
+   * One, we use a pair of PipedInput and Output streams to link the OutputStream we return here
+   * to the InputStream we give to the dropbox put api. 
+   * 
+   * Second, we invoke the dropbox put api in another thread. Specifically, we use an executor to 
+   * maintain a thread pool. We construct a new runnable to invoke the dropox put api and submit 
+   * this runnable to the executor. 
+   */
   @Override
   public OutputStream createOutputStream(long offset) throws IOException {
     if(offset != 0) {
       throw new IOException("offset must be 0 since we don't support random access");
     }
     PipedOutputStream pos = new PipedOutputStream();
-    PipedInputStream pis = new PipedInputStream(pos);
+    PipedInputStream pis = new PipedInputStream(pos, 8*1024); // Use an 8K buffer instead of the 1K default
     DropboxFileWriter writer = new DropboxFileWriter(path, dropboxAPI, pis);
     DropboxContext.getInstance().getDropboxPutExecutor().execute(writer);
     return pos;
@@ -156,7 +175,7 @@ public class DropboxFile implements FtpFile {
     return false;
   }
 
-  private static class DropboxFileWriter implements Runnable {
+  protected static class DropboxFileWriter implements Runnable {
     private final String path;
     private final DropboxAPI<WebAuthSession> dropboxAPI;
     private final InputStream is;
@@ -177,6 +196,14 @@ public class DropboxFile implements FtpFile {
         e.printStackTrace();
       } catch (Exception e) {
         e.printStackTrace();
+      } finally {
+        if(is != null) {
+          try {
+            is.close();
+          } catch (IOException e) {
+            // swallow exception 
+          }
+        }
       }
     }
   }

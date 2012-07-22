@@ -10,7 +10,14 @@ import com.dropbox.client2.session.AccessTokenPair;
 import com.dropbox.client2.session.AppKeyPair;
 import com.dropbox.ftpserver.auth.DropboxUser;
 
-
+/**
+ * A singleton object to hold various entities needed by different parts of the code. 
+ * 
+ * We don't use the traditional pattern of lazy singleton initialization here. 
+ * The assumption is that at program startup point, createInstance is called to setup the 
+ * instance correctly. Only after that is getInstance called by different components. 
+ * 
+ */
 public class DropboxContext {
 
   protected final AppKeyPair appKeyPair;
@@ -61,7 +68,7 @@ public class DropboxContext {
     return ftpRETRExecutor;
   }
   
-  private DropboxContext(String key, String secret, 
+  protected DropboxContext(String key, String secret, 
       Executor dropboxPutExecutor, Executor ftpSTORExecutor, Executor ftpRETRExecutor) {
     appKeyPair = new AppKeyPair(key, secret);
     this.dropboxPutExecutor = dropboxPutExecutor;

@@ -24,6 +24,21 @@ import org.slf4j.LoggerFactory;
 
 import com.dropbox.ftpserver.DropboxContext;
 
+/**
+ * Implementation of the FTP STOR command. 
+ * 
+ * This command is used to put a file into Dropbox. Similar to RETR, our aim here is to do the 
+ * actual transfer of data in another thread, so the the the thread calling execute can go back
+ * to processing FTP commands. 
+ * 
+ * Similar to RETR, we create a new runnable that will do the actual file transfer, and submit 
+ * this runnable to an executor. 
+ * 
+ * We do not support seeking into a file. Thus, the whole is transferred each time.  
+ * 
+ * Note: Most of this code was copied from the STOR method in Apache Ftp Server. 
+ * 
+ */
 public class STOR extends AbstractCommand {
 
   private final Logger LOG = LoggerFactory.getLogger(STOR.class);
@@ -32,8 +47,6 @@ public class STOR extends AbstractCommand {
   public void execute(FtpIoSession session, FtpServerContext context,
       FtpRequest request) throws IOException, FtpException {
     boolean cleanup = true;
-    LOG.debug("IN MY STOR");
-    System.out.println("Did log debug in my stor work?");  
     try {
 
       // argument check
@@ -133,8 +146,6 @@ public class STOR extends AbstractCommand {
     public void run() {
 
       try {
-        LOG.debug("In my STORRUnnable!");
-        System.out.println("Did log.debug work?");
         String fileName = request.getArgument();
 
         // transfer data

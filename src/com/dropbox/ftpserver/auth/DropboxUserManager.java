@@ -9,11 +9,10 @@ import org.apache.ftpserver.usermanager.UsernamePasswordAuthentication;
 import com.dropbox.ftpserver.DropboxContext;
 
 /**
+ * Implementation of the FTP User Manager interface that authenticates Dropbox users. 
+ * Only the essential methods needed for this program have been implemented. 
  * 
- */
-
-/**
- *
+ * An FTP user is considered authenticated, if in he was setup in the authentication flow at startup. 
  */
 public class DropboxUserManager implements UserManager {
      
@@ -25,7 +24,6 @@ public class DropboxUserManager implements UserManager {
       String username = upauth.getUsername();
       User user = dropboxContext.getUser(username);
       if(user == null) {
-        System.out.println("HERE!!!!");
         throw new AuthenticationFailedException("Authentication failed. Given username does not exist");
       }
       return user;

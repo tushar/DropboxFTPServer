@@ -7,7 +7,18 @@ import com.dropbox.client2.session.WebAuthSession;
 import com.dropbox.ftpserver.DropboxContext;
 import com.dropbox.ftpserver.Utils;
 
-
+/**
+ * Class responsible for authorization set up. 
+ * We follow the OAuth flow by using a terminal. 
+ * The user is asked to enter a username, then shown a url where he should go to allow access 
+ * to us. After he has done that, we can get an AccessTokenPair for the user. 
+ * 
+ * AccessTokenPairs for all users need to be setup through this process first, before we start the
+ * FTPServer. The FTPServer will only auth users that have been set up via this flow first. 
+ * 
+ * We have to do it this way since we cannot take an ftp username and password and pass those along
+ * to Dropbox for auth.  
+ */
 public class AuthTerminal {
 
   public void run() {    
