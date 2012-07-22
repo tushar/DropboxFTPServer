@@ -9,7 +9,7 @@ Note: You might want to modify the JVM heap sizes in run.bsh
 
 By default, the ftp server listens on port 2221. You can look at config.properties to see all the configurables. They are fairly self explanatory. If you change them, you must restart the server for them to take effect. 
 
-You can also launch an ec2 instance using this AMI: <AMI_ID> . 
+You can also launch an ec2 instance using this AMI: ami-544cc364 (I've made it publicly accessible).  
 
 The ami already contains this code. All you have to do is log in and invoke run.bsh. 
 
