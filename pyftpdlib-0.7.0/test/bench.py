@@ -463,7 +463,7 @@ def main():
                     conn = ftp.transfercmd("STOR " + TESTFN + str(i))
                     i = i+1
                     #AsyncWriter(conn, 1024 * 1024 * 5)
-                    AsyncWriter(conn, 1024 * 1024)
+                    AsyncWriter(conn, FILE_SIZE)
                 register_memory()
                 asyncore.loop(use_poll=True)
             for ftp in clients:

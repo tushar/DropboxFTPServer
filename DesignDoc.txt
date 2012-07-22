@@ -1,0 +1,133 @@
+--------------------------------------------------------------------------------
+Problem Statement:
+
+Implement an FTP Server over the Dropbox API. No need to implement the entire FTP spec. Ability to get and put files (RETR and STOR) is enough. 
+It should be possible for hundreds or thousands of users to be connected to it concurrently, and all should make forward progress, even if that means a reduction in throughput
+--------------------------------------------------------------------------------
+
+Major Design Points:
+
+Auth: 
+
+FTP authenticates via username and password. The Dropbox api uses OAuth for authentication, thus we cannot accept a username and password combo and pass that along to the dropbox api. To get around this, we go through an authentication workflow at startup and require all users who will be using the FTP server to be authenticated up front. 
+
+Network IO structure and processing:
+
+Given the requirements, a completely non-blocking structure would seem to be ideal. Scaling to a large number of connections is possible using async io, but would be hard using the traditional thread per connection model. 
+The really interesting requirement is the second one, where we would prefer all users (used interchangeably with connections from here on), to make forward progress, even if that means a reduction in throughput. The requirement does not clarify whether we are talking about server throughput or client observed throughput (per connection throughput from the client's viewpoint). I will assume that we mean the latter. Since server throughput at scale would lead to the server getting browned out ultimately. 
+
+We essentially have the following choices for deciding how to structure our network IO:
+
+- 1. Create a new thread for every STOR / RETR interaction, with no bound on the number of threads. 
+     Pro: Since there will be a thread for each STOR or RETR, they will all get to make some progress. 
+     Con: As the number of threads grows, server throughput will start to degrade (due to context switching overhead primarily) until ultimately the server is browned out and not able to make any meaningful progress. 
+- 2. Maintain a bounded thread pool to perform STOR / RETR interactions. 
+     Pro: Server will not brown out under heavy load. 
+     Con: We don't meet the second requirement of ensuring that all connections make concurrent progress. Suppose we have N threads. Then N users will make progress at a time, whie the rest sit in a queue. 
+     However, this is the model that I ended up implementing. I will explain the model in more detail later, and also explain why I ended up implementing this.
+- 3. Use non-blocking sockets to both read and write files. Thus all network IO is non-blocking. 
+     Pro: Can scale to a very large number of concurrent puts and gets and will ensure that all clients make concurrent progress. 
+     Con: Complicated to implement. The Dropbox Java SDK is blocking, so I would had have to re-implement that over AsyncHttpClient. The Apache FTP Server also uses blocking Sockets for file transfers, thus would have had to re-implement quite a few things there too. 
+     Thus, complexity and time needed to implement this solution is the only reason I did not implement it. 
+
+
+Connection handling:
+
+FTP clients connect on the port that the FTP server is listening on. Then, to do file transfer, either STOR or RETR, they ask the FTP server to listen on a new ephemeral port. They then open a new connection to that port and data transfer happens there. 
+Thus, in all 3 cases above, I will use non-blocking sockets for the initial connection. The choices above speak to how we would structure the data connection. 
+
+Non-blocking Network IO details:
+
+Even though I did not implement this model, I wanted to provide a few details into how this would work. 
+
+First, a little bit of terminology to make the discussion easier. 
+
+Client connection / Command connection: The connection the client makes to the FTP server to send it commands. 
+Data connection: The connection between client and server for STOR and RETR
+Selector: A thread responsible calling select (uses the epoll system call internally) on a set of sockets. 
+
+I would maintain one selector for all the command connections. I would also maintain a small thread pool of workers. Anytime a message is received on a command connection, I would hand off the message to one of the worker threads and then go back to waiting on a select. 
+The worker threads would respond to the actual command, either auth or setting up a new socket for STOR or RETR, or actually starting the STOR / RETR. 
+I'm actually not a 100% sure that having a pool of worker threads here is better than doing the work inside the Selector thread. However, the idea is that even though all the work would be non-blocking, maintaing a thread pool allows the Selector thread to select the next ready socket quicker and allows me to use the worker threads to leverage multiple cpus. 
+
+Now, before describing how non-blocking STOR and RETR would work, need to describe some basic setup that would be needed. 
+
+* Would need to re-implement the Dropbox SDK over something like Apache AsyncHttpClient so that we could use java.nio non-blocking sockets. 
+* Would need to maintain a mapping between an FTP data connection and a Dropbox connection
+
+The idea would be to maintain 1 selector over all FTP data sockets and Dropbox sockets. Similar to before, we would also maintain a small pool of worker threads (# of cores).
+The selector will pick a socket when it is either readable or writable, depending on the case. It will then hand off that socket to the pool of worker threads. 
+A worker thread, will pick up this socket. It will have to find the corresponding socket on the other end and do the appropriate data transfer. 
+
+Let's consider the flow for a STOR. We have a socket over the ftp data connection and a socket to the dropbox server. We are reading from the ftp socket and writing to the dropbox socket. Let us say, that the selector selected the ftp socket because it was ready to be read (meaning some amount of data was available in memory). The worker thread, now needs to find the corresponding dropbox socket. Thus, we would have to maintain this mapping somewhere. That does not seem hard so let's assume we solved that. Now, if the dropbox socket is ready for writes, we can simply read from the ftp socket and write to the dropbox socket. However, if it is not ready to write, then we do nothing. 
+The selector will select the dropbox socket once it is ready for writes. At that point, we will find the corresponding ftp socket, see that it is ready for reads, and copy as many bytes over as we can. 
+
+This is the general idea and RETR would work correspondingly. This way, when we have a lot of data connections, we work on all of them concurrently. 
+
+Keeping thread safety is important here. In the above interaction I described, it is possible for 2 worker threads to end up working on the same pair of ftp and dropbox sockets. For example, imagine that the ftp socket becomes readable, however the dropbox socket is not writable at this point. Now, worker thread 1, starts working. It looks up the associated dropbox socket, but right before it checks whether it is writable, it gets context switched out. 
+Now, the dropbox socket becomes writable, gets selected by the selector, and worker thread 2 picks it up. Now, both worker thread 1 and 2 could end up writing to this socket concurrently which could lead to bytes being written out of order and ultimately file corruption! 
+
+Fortunately, recognizing this problem is the hard part, but fixing it is straightforward. We need to introduce some sort of synchronization (mutually exclusive access) over the pair of ftp and dropbox sockets. The straightforward thing to do seems to be to maintain a lock for every pair and synchronize on that lock in the worker thread before doing any work. 
+Introducing synchronization is always something to be concerned about from a performance standpoint. However, I would introduce it and benchmark it before trying to optimize it. If we were trying to optimize it though, then an interesting optimization would be to try and make the worker thread code be lock free and wait free using compareAndSwap. 
+
+The pros of this approach are that it should scale to a very large number concurrent STOR and RETR connections and allow them all to make concurrent progress. 
+
+The reason I did not end up implementing this is because it would be a lot more work and require a lot more time to finish. I would have to re-implement significant parts of both the dropbox sdk and the Apache FTP server, since neither supports non-blocking sockets currently. 
+
+--------------------
+
+Design of the implemented solution:
+
+The Apache FTP Server uses Apache Mina to implement a non-blocking server. However, only the command connections are non-blocking. Meaning, internally it uses non-blocking sockets for the command connections. When it receives a message on a socket, that socket is selected by a selector and passed to a pool of worker threads. These worker threads implement the FTP logic (all the commands). 
+
+Here are the major commands we are interested in:
+
+USER - authenticates a user
+EPSV - asks the FTP server to open a new socket wait to do data transfer there. This command precedes both STOR and RETR
+STOR - Upload a file. This command tells the ftp server to accept on the new socket established by EPSV and wait to get a file from the client. 
+RETR - Download a file from the server. The server opens a new socket and connectes to the client to do the data transfer. 
+
+STOR and RETR are the ones that I modified. I'll walk through the flow for each independantly. 
+
+Before I do that though, here is a quick summary of the thread structure:
+
+Selector over FTP command sockets --> Thread pool of FTP workers --> Different thread pools for both STOR and RETR data transfer
+
+RETR:
+
+The RETR command is called by an FTP worker thread. I didn't want to the actual data transfer in this thread since it would prevent it from responsind to other FTP commands, like authentication etc. So, I maintain a thread pool of RETR worker threads. Those threads do blocking network IO to both the dropox server and over the FTP data socket. 
+
+STOR:
+
+Similar setup as RETR, with one additional threadpool. The dropbox put API is both blocking and requires an InputStream. The FTP server code responsible for transferring data from the client to the server requires an OutputStream to a file. I dealt with this in the following manner:
+
+1. I created a combination of PipedInput and output streams. This prevents me from buffering all the contents from the client in memory before sending them to dropbox. 
+2. I maintain a new thread pool of workers that are responsible for calling the dropbox put api and thus driving the read from the PipedInput stream. 
+
+Similar to RETR, I have a thread pool or STOR workers that drive reading from the FTP data socket and writing into the PipedOutput stream. 
+
+Thus, I have a model where I can support a large number of connections, due to using non-blocking sockets. However, a limited number of concurrent STOR and RETR operations. As mentioned earlier, this does not meet the second requirement of the problem statement, however, is what I was able to get done given the time constraints. 
+
+
+Note: Since the dropbox api does not support streaming, you have to configure the server with a file size and it expects all files to be of this exact size. 
+
+--------------------------------------------------------------------------------
+Testing
+--------------------------------------------------------------------------------
+
+Unit testing:
+
+I have not added any unit tests. If this was for a production use case, then I would definitely have added unit tests. I would also have added stub implementations of the dropbox api and the ftp server, so that I could use them in my unit tests. 
+
+Fault injection:
+
+One, I currently don't deal with a lot of exceptions cleanly (like 50X's from dropbox etc). Second, I would have also decorated the dropbox api and ftp server so that I could inject faults, both in unit tests and when doing integration testing out in EC2 etc. Some interesting faults to inject would be, randomly adding latency, flipping random bits, dropping packets etc. 
+
+Performance testing:
+
+I have not been able to do very large scale perf testing since I start getting 503s from dropbox at anything over 100tps.
+
+
+
+
+

@@ -1,0 +1,25 @@
+Please read the DesignDoc.txt file for an overview of the problem and the approach taken to solve it. 
+
+In order to build and run this on your machine, do the following:
+
+> ant
+> ./run.bsh 
+
+Note: You might want to modify the JVM heap sizes in run.bsh
+
+By default, the ftp server listens on port 2221. You can look at config.properties to see all the configurables. They are fairly self explanatory. If you change them, you must restart the server for them to take effect. 
+
+You can also launch an ec2 instance using this AMI: <AMI_ID> . The ami already contains this code. All you have to do is log in and invoke run.bsh. 
+
+User authentication happens before the server starts up. You will be asked to provide a username. You will then be prompted to go to a link and give this app access. Once you have done that, return and press enter. You can do this for as many users as you like. Once you have finished setting up the users, type \quit. 
+
+You can not use any ftp client to connect to this server and using any of the usernames you set up. You will need to pass a password, however it will be ignored. 
+
+Included in this code is a benchmarking script. You can run it as so:
+
+> python ./pyftpdlib-0.7.0/test/bench.py -u tushar -p blah -H localhost -P 2221 -b concurrence -s 1M -n 32
+
+This script was downloaded from here: http://code.google.com/p/pyftpdlib/source/browse/trunk/test/bench.py 
+Also look at: http://code.google.com/p/pyftpdlib/
+
+It was slightly modified to obey the size parameter always and to use different file names when running concurrent STOR and RETR calls. 
