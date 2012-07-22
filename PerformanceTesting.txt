@@ -1,0 +1,77 @@
+I have not been able to do performance testing using a very large number of connections (> 128) since I start seeing 503s from Dropbox (essentially, I'm being throttled) once I start approaching 100 tps. 
+
+However, here are some rudimentary numbers (avg'ed over 3 runs). 
+
+Setup: 1 m1.xlarge as the server and 1 m1.xlarge as the client from where I'm running the benchmark. 
+
+Server configuration:
+numPutThreads=128
+numGetThreads=128
+fileSizeInBytes=10485760
+maxFTPWorkerThreads=16
+
+So, 10M file size, 128 put and get worker threads and 16 FTP worker threads. 
+
+ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ python ./test/bench.py -u tushar -p blah -H 10.252.137.216 -P 2221 -b concurrence -s 10M -n 32
+32 concurrent clients (connect, login)         0.08 secs
+32 concurrent clients (STOR 10M file)         34.88 secs
+32 concurrent clients (RETR 10M file)          3.08 secs
+32 concurrent clients (quit)                   0.01 secs
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ python ./test/bench.py -u tushar -p blah -H 10.252.137.216 -P 2221 -b concurrence -s 10M -n 64
+64 concurrent clients (connect, login)         0.18 secs
+64 concurrent clients (STOR 10M file)         32.35 secs
+64 concurrent clients (RETR 10M file)          5.65 secs
+64 concurrent clients (quit)      
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ python ./test/bench.py -u tushar -p blah -H 10.252.137.216 -P 2221 -b concurrence -s 10M -n 128
+128 concurrent clients (connect, login)        0.30 secs
+128 concurrent clients (STOR 10M file)        42.79 secs
+128 concurrent clients (RETR 10M file)        11.18 secs
+128 concurrent clients (quit)                  0.03 secs
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$
+
+The last test with a concurrency of 128 is not accurate since the server saw a lot of 503s during that run. 
+
+However, 32 -> 64 is an interesting set of numbers to compare. 
+Given our server config of 128 worker threads, we don't expect to see any degradation due to queing when we go from 32 to 64. If we see any perf degradation, then that implies some other bottleneck (context switching most likely). We don't see any degradation in STOR from 32 -> 64. However, we do in RETR. I don't currently have a good understanding of why that is. There can be a number of factors influencing this. 
+
+One thing to do would be to collect more data across different instance types and different configurations to see if we see the same trend in all of them. If we do, then need to try and figure out why. One of the first things that comes to mind is to look deeper into how the Dropbox SDK is using HttpClient. It's possible that there is a connection pool there and we may be seeing some queueing happening there. 
+
+Have not invested the time to dive deeper into this. 
+
+To see the effect of using a thread pool model with queing, I simulated an overload situation by reducing the number of threads running in the server. 
+
+Same ec2 instances, but new server config:
+numPutThreads=8
+numGetThreads=8
+fileSizeInBytes=10485760
+maxFTPWorkerThreads=8
+
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ python ./test/bench.py -u tushar -p blah -H 10.252.137.216 -P 2221 -b concurrence -s 10M -n 4
+4 concurrent clients (connect, login)          0.02 secs
+4 concurrent clients (STOR 10M file)          13.60 secs
+4 concurrent clients (RETR 10M file)           1.70 secs
+4 concurrent clients (quit)                    0.00 secs
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ 
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ python ./test/bench.py -u tushar -p blah -H 10.252.137.216 -P 2221 -b concurrence -s 10M -n 8
+8 concurrent clients (connect, login)          0.03 secs
+8 concurrent clients (STOR 10M file)          16.87 secs
+8 concurrent clients (RETR 10M file)           1.60 secs
+8 concurrent clients (quit)                    0.00 secs
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ 
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ python ./test/bench.py -u tushar -p blah -H 10.252.137.216 -P 2221 -b concurrence -s 10M -n 16
+16 concurrent clients (connect, login)         0.07 secs
+16 concurrent clients (STOR 10M file)         30.90 secs
+16 concurrent clients (RETR 10M file)          3.09 secs
+16 concurrent clients (quit)                   0.01 secs
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ 
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ python ./test/bench.py -u tushar -p blah -H 10.252.137.216 -P 2221 -b concurrence -s 10M -n 32
+32 concurrent clients (connect, login)         0.13 secs
+32 concurrent clients (STOR 10M file)         70.58 secs
+32 concurrent clients (RETR 10M file)          6.65 secs
+32 concurrent clients (quit)                   0.01 secs
+[ec2-user@ip-10-252-143-249 pyftpdlib-0.7.0]$ 
+
+
+From 8->16->32 we see a proportional degradation (both STOR and RETR seem to get roughly 2x worse), which matches our expectation. 
+And from 4->8 we don't see significant degradation so this also matches our expectations. 
+
