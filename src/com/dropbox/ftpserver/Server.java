@@ -45,7 +45,7 @@ public class Server {
     // replace the default listener
     ListenerFactory factory = new ListenerFactory();           
     // set the port of the listener
-    factory.setPort(2221);
+    factory.setPort(config.getPort());
     serverFactory.addListener("default", factory.createListener());
     
     // set up connection config

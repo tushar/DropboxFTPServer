@@ -17,12 +17,14 @@ public class Config {
   protected static final String NUM_PUT_THREADS = "numPutThreads";
   protected static final String NUM_GET_THREADS = "numGetThreads";
   protected static final String FILE_SIZE = "fileSizeInBytes";
+  protected static final String PORT = "port";
   
   protected static final Integer DEFAULT_MAX_LOGINS = 10000;
   protected static final Integer DEFAULT_MAX_FTP_WORKER_THREADS = 16;
   protected static final Integer DEFAULT_NUM_PUT_THREADS = 32;
   protected static final Integer DEFAULT_NUM_GET_THREADS = 32;
   protected static final Integer DEFAULT_FILE_SIZE_IN_BYTES = 1024*1024; // 1MB
+  protected static final Integer DEFAULT_PORT = 2221;
   
   protected static Config instance;
   
@@ -57,6 +59,10 @@ public class Config {
     return Integer.valueOf((String)properties.getProperty(FILE_SIZE));
   }
   
+  public int getPort() {
+    return Integer.valueOf((String)properties.getProperty(PORT));
+  }
+  
   protected Config() throws IOException {
     properties = new Properties();
     createDefaultConfig();
@@ -81,6 +87,7 @@ public class Config {
     properties.setProperty(NUM_GET_THREADS, DEFAULT_NUM_GET_THREADS.toString());
     properties.setProperty(NUM_PUT_THREADS, DEFAULT_NUM_PUT_THREADS.toString());
     properties.setProperty(FILE_SIZE, DEFAULT_FILE_SIZE_IN_BYTES.toString());    
+    properties.setProperty(PORT, DEFAULT_PORT.toString());
   }
   
   protected void storeConfig() throws IOException {
